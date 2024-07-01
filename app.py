@@ -1,11 +1,10 @@
 from flask import Flask, render_template_string
-from flask_socketio import SocketIO, emit, join_room
+from flask_socketio import SocketIO, emit
 from flask_cors import CORS
 
 app = Flask(__name__)
 CORS(app)
 socketio = SocketIO(app)
-
 
 html = """
 <!DOCTYPE html>
@@ -40,6 +39,18 @@ html = """
       width: 300px;
       height: 225px;
       object-fit: cover;
+    }
+    #call-button {
+      padding: 10px 20px;
+      font-size: 18px;
+      background-color: #007bff;
+      color: #fff;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+    }
+    #call-button:hover {
+      background-color: #0056b3;
     }
   </style>
 </head>
@@ -118,7 +129,10 @@ html = """
 
   socket.on('offer_created', async (data) => {
     if (!peerConnection.currentRemoteDescription) {
-      await createAnswer(data);
+      const accept = confirm('Incoming call! Do you want to accept?');
+      if (accept) {
+        await createAnswer(data);
+      }
     }
   });
 
@@ -128,6 +142,7 @@ html = """
 
   let call = async () => {
     await createOffer();
+    socket.emit('call_started', true);
   }
 
   document.getElementById('call-button').addEventListener('click', call);
@@ -149,6 +164,11 @@ def handle_create_offer(data):
 @socketio.on('create_answer')
 def handle_create_answer(data):
     emit('answer_created', data, broadcast=True)
+
+@socketio.on('call_started')
+def handle_call_started(data):
+    if data:
+        emit('incoming_call', True, broadcast=True)
 
 if __name__ == '__main__':
     socketio.run(app, debug=True)
