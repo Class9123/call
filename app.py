@@ -1,5 +1,5 @@
 from flask import Flask, render_template_string
-from flask_socketio import SocketIO, emit, join_room, leave_room
+from flask_socketio import SocketIO, emit, join_room
 from flask_cors import CORS
 import secrets
 
@@ -7,8 +7,9 @@ app = Flask(__name__)
 CORS(app)
 socketio = SocketIO(app)
 
-# Dictionary to store client rooms
+# Dictionary to store client rooms and names
 client_rooms = {}
+client_names = {}
 
 html = """
 <!DOCTYPE html>
@@ -100,6 +101,7 @@ html = """
 
   <input type="text" id="room-number" placeholder="Enter Room Number">
   <button id="join-room-button">Join Room</button>
+  <p>Your unique name: <span id="unique-name"></span></p>
 
   <div id="videos">
     <div class="video-container">
@@ -129,6 +131,10 @@ html = """
   let localStream;
   let remoteStream = new MediaStream();
   let roomNumber = '';
+
+  socket.on('client_info', (data) => {
+    document.getElementById('unique-name').innerText = data.name;
+  });
 
   let init = async () => {
     localStream = await navigator.mediaDevices.getUserMedia({
@@ -227,15 +233,15 @@ html = """
 </html>
 """
 
-def generate_client_number():
-    """Generate a secure number for the client."""
-    return secrets.token_hex(4)  # Generate a random 8-character hex number
+def generate_client_name():
+    """Generate a unique name for the client."""
+    return secrets.token_hex(4)  # Generate a random 8-character hex name
 
 @socketio.on('connect')
 def handle_connect():
-    client_number = generate_client_number()
-    client_rooms[request.sid] = client_number
-    emit('client_number', {'number': client_number}, room=request.sid)
+    client_name = generate_client_name()
+    client_rooms[request.sid] = client_name
+    emit('client_info', {'name': client_name}, room=request.sid)
 
 @socketio.on('disconnect')
 def handle_disconnect():
