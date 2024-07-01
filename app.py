@@ -1,163 +1,124 @@
 from flask import Flask, render_template_string, request
 from flask_socketio import SocketIO, emit, join_room
-from uuid import uuid4
+from flask_cors import CORS
 
-app = Flask(__name__)
+app =Flask (__name__)
+CORS(app)
 socketio = SocketIO(app)
 
-users = {}
+
+html="""
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset='utf-8'>
+  <meta http-equiv='X-UA-Compatible' content='IE=edge'>
+  <title>WebRTC 1</title>
+  <meta name='viewport' content='width=device-width, initial-scale=1'>
+  <link rel='stylesheet' type='text/css' media='screen' href='main.css'>
+  <script src="https://cdn.socket.io/4.0.0/socket.io.min.js"></script>
+</head>
+<body>
+
+  <div id="videos">
+    <video class="video-player" id="user-1" autoplay playsinline></video>
+    <video class="video-player" id="user-2" autoplay playsinline></video>
+  </div>
+
+  <div class="step">
+    <p>
+      <strong>Step 1:</strong> Click "Call" to start the video call.
+    </p>
+    <button id="call-button">Call</button>
+  </div>
+
+</body>
+<script>
+  const socket = io();
+  let peerConnection = new RTCPeerConnection();
+  let localStream;
+  let remoteStream;
+
+  let init = async () => {
+    localStream = await navigator.mediaDevices.getUserMedia({
+      video: true, audio: false
+    });
+    remoteStream = new MediaStream();
+    document.getElementById('user-1').srcObject = localStream;
+    document.getElementById('user-2').srcObject = remoteStream;
+
+    localStream.getTracks().forEach((track) => {
+      peerConnection.addTrack(track, localStream);
+    });
+
+    peerConnection.ontrack = (event) => {
+      event.streams[0].getTracks().forEach((track) => {
+        remoteStream.addTrack(track);
+      });
+    };
+  }
+
+  let createOffer = async () => {
+    peerConnection.onicecandidate = async (event) => {
+      if (event.candidate) {
+        socket.emit('create_offer', peerConnection.localDescription);
+      }
+    };
+
+    const offer = await peerConnection.createOffer();
+    await peerConnection.setLocalDescription(offer);
+  }
+
+  let createAnswer = async (offer) => {
+    peerConnection.onicecandidate = async (event) => {
+      if (event.candidate) {
+        socket.emit('create_answer', peerConnection.localDescription);
+      }
+    };
+
+    await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
+    const answer = await peerConnection.createAnswer();
+    await peerConnection.setLocalDescription(answer);
+  }
+
+  let addAnswer = async (answer) => {
+    if (!peerConnection.currentRemoteDescription) {
+      await peerConnection.setRemoteDescription(new RTCSessionDescription(answer));
+    }
+  }
+
+  socket.on('offer_created', async (data) => {
+    if (!peerConnection.currentRemoteDescription) {
+      await createAnswer(data);
+    }
+  });
+
+  socket.on('answer_created', async (data) => {
+    await addAnswer(data);
+  });
+
+  let call = async () => {
+    await createOffer();
+  }
+
+  document.getElementById('call-button').addEventListener('click', call);
+
+  init();
+</script>
+</html>
+"""
 
 @app.route('/')
 def index():
-    html_code = '''
-    <!DOCTYPE html>
-    <html lang="en">
-    <head>
-        <meta charset="UTF-8">
-        <title>Video Call</title>
-        <script src="https://cdn.socket.io/4.0.0/socket.io.min.js"></script>
-    </head>
-    <body>
-        <div>
-            <input id="roomName" type="text" placeholder="Enter room name">
-            <button id="createRoomBtn">Create Room</button>
-            <button id="joinRoomBtn">Join Room</button>
-        </div>
-        <video id="localVideo" autoplay playsinline muted></video>
-        <video id="remoteVideo" autoplay playsinline></video>
+    return render_template_string(html)
 
-        <script>
-            const socket = io();
-            let roomId;
-            const userId = Math.random().toString(36).substring(7);
-            let localStream;
-            let peerConnection;
+@socketio.on('create_offer')
+def handle_create_offer(data):
+    emit('offer_created', data, broadcast=True)
 
-            const config = {
-                iceServers: [
-                    { urls: 'stun:stun.l.google.com:19302' }
-                ]
-            };
-
-            const localVideo = document.getElementById('localVideo');
-            const remoteVideo = document.getElementById('remoteVideo');
-            const roomNameInput = document.getElementById('roomName');
-            const createRoomBtn = document.getElementById('createRoomBtn');
-            const joinRoomBtn = document.getElementById('joinRoomBtn');
-
-            createRoomBtn.addEventListener('click', () => {
-                roomId = roomNameInput.value;
-                startVideoCall();
-            });
-
-            joinRoomBtn.addEventListener('click', () => {
-                roomId = roomNameInput.value;
-                startVideoCall();
-            });
-
-            function startVideoCall() {
-                navigator.mediaDevices.getUserMedia({ video: true, audio: true })
-                    .then(stream => {
-                        localVideo.srcObject = stream;
-                        localStream = stream;
-
-                        socket.emit('join', { room: roomId, user_id: userId });
-
-                        socket.on('ready', () => {
-                            peerConnection = new RTCPeerConnection(config);
-
-                            localStream.getTracks().forEach(track => {
-                                peerConnection.addTrack(track, localStream);
-                            });
-
-                            peerConnection.onicecandidate = event => {
-                                if (event.candidate) {
-                                    socket.emit('signal', {
-                                        room: roomId,
-                                        user_id: userId,
-                                        signal: { 'candidate': event.candidate }
-                                    });
-                                }
-                            };
-
-                            peerConnection.ontrack = event => {
-                                remoteVideo.srcObject = event.streams[0];
-                            };
-
-                            peerConnection.createOffer()
-                                .then(offer => {
-                                    return peerConnection.setLocalDescription(offer);
-                                })
-                                .then(() => {
-                                    socket.emit('signal', {
-                                        room: roomId,
-                                        user_id: userId,
-                                        signal: { 'sdp': peerConnection.localDescription }
-                                    });
-                                });
-                        });
-
-                        socket.on('signal', data => {
-                            if (data.user_id === userId) return;
-
-                            const signal = data.signal;
-
-                            if (signal.sdp) {
-                                peerConnection.setRemoteDescription(new RTCSessionDescription(signal.sdp))
-                                    .then(() => {
-                                        if (signal.sdp.type === 'offer') {
-                                            peerConnection.createAnswer()
-                                                .then(answer => {
-                                                    return peerConnection.setLocalDescription(answer);
-                                                })
-                                                .then(() => {
-                                                    socket.emit('signal', {
-                                                        room: roomId,
-                                                        user_id: userId,
-                                                        signal: { 'sdp': peerConnection.localDescription }
-                                                    });
-                                                });
-                                        }
-                                    });
-                            } else if (signal.candidate) {
-                                peerConnection.addIceCandidate(new RTCIceCandidate(signal.candidate));
-                            }
-                        });
-                    })
-                    .catch(error => {
-                        console.error('Error accessing media devices.', error);
-                    });
-            }
-        </script>
-    </body>
-    </html>
-    '''
-    return render_template_string(html_code)
-
-@socketio.on('join')
-def on_join(data):
-    room = data['room']
-    user_id = data['user_id']
-    print(f'User {user_id} joined room {room}')
-    join_room(room)
-
-    if room in users:
-        users[room].append(user_id)
-    else:
-        users[room] = [user_id]
-
-    if len(users[room]) == 2:
-        print(f'Two users in room {room}. Signaling readiness.')
-        socketio.emit('ready', room=room)
-
-@socketio.on('signal')
-def on_signal(data):
-    room = data['room']
-    user_id = data['user_id']
-    signal_data = data['signal']
-    print(f'Signal received from user {user_id} in room {room}: {signal_data}')
-    other_user = [user for user in users[room] if user != user_id][0]
-    emit('signal', {'user_id': other_user, 'signal': signal_data}, room=room)
+@socketio.on('create_answer')
+def handle_create_answer(data):
+    emit('answer_created', data, broadcast=True)
 
 if __name__ == '__main__':
     socketio.run(app, debug=True)
