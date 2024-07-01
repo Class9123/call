@@ -1,14 +1,14 @@
-from flask import Flask, render_template_string, request
-from flask_socketio import SocketIO, emit, join_room, disconnect
+from flask import Flask, render_template_string
+from flask_socketio import SocketIO, emit, join_room, leave_room
 from flask_cors import CORS
-import secrets  # For generating secure tokens
+import secrets
 
 app = Flask(__name__)
 CORS(app)
 socketio = SocketIO(app)
 
-# Dictionary to store client tokens
-client_tokens = {}
+# Dictionary to store client rooms
+client_rooms = {}
 
 html = """
 <!DOCTYPE html>
@@ -17,12 +17,13 @@ html = """
   <meta charset='utf-8'>
   <meta http-equiv='X-UA-Compatible' content='IE=edge'>
   <meta name='viewport' content='width=device-width, initial-scale=1'>
-  <title>Unique Token Video Calling</title>
+  <title>Room-Based Video Calling</title>
   <style>
     body {
       font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
       background-color: #f0f0f0;
       display: flex;
+      flex-direction: column;
       justify-content: center;
       align-items: center;
       height: 100vh;
@@ -52,10 +53,7 @@ html = """
       border: none;
       border-radius: 5px;
       cursor: pointer;
-      position: absolute;
-      top: 20px;
-      right: 20px;
-      z-index: 10;
+      margin-top: 20px;
     }
     #call-button:hover {
       background-color: #0056b3;
@@ -100,7 +98,8 @@ html = """
 </head>
 <body>
 
-  <button id="call-button">Call</button>
+  <input type="text" id="room-number" placeholder="Enter Room Number">
+  <button id="join-room-button">Join Room</button>
 
   <div id="videos">
     <div class="video-container">
@@ -121,13 +120,15 @@ html = """
     </div>
   </div>
 
+  <button id="call-button">Call</button>
+
 <script src="https://cdn.socket.io/4.0.0/socket.io.min.js"></script>
 <script>
   const socket = io();
   let peerConnection = new RTCPeerConnection();
   let localStream;
   let remoteStream = new MediaStream();
-  let clientToken = "{{ client_token }}";  // Token passed from server
+  let roomNumber = '';
 
   let init = async () => {
     localStream = await navigator.mediaDevices.getUserMedia({
@@ -150,7 +151,7 @@ html = """
   let createOffer = async () => {
     peerConnection.onicecandidate = async (event) => {
       if (event.candidate) {
-        socket.emit('create_offer', { offer: peerConnection.localDescription, token: clientToken });
+        socket.emit('create_offer', { offer: peerConnection.localDescription, room: roomNumber });
       }
     };
 
@@ -161,7 +162,7 @@ html = """
   let createAnswer = async (offer) => {
     peerConnection.onicecandidate = async (event) => {
       if (event.candidate) {
-        socket.emit('create_answer', { answer: peerConnection.localDescription, token: clientToken });
+        socket.emit('create_answer', { answer: peerConnection.localDescription, room: roomNumber });
       }
     };
 
@@ -177,19 +178,19 @@ html = """
   }
 
   socket.on('offer_created', async (data) => {
-    if (!peerConnection.currentRemoteDescription && data.sender !== socket.id && data.token === clientToken) {
+    if (data.room === roomNumber && data.sender !== socket.id) {
       showIncomingCallModal(data.sender);
     }
   });
 
   socket.on('answer_created', async (data) => {
-    if (data.token === clientToken) {
+    if (data.room === roomNumber) {
       await addAnswer(data.answer);
     }
   });
 
   socket.on('call_accepted', async (data) => {
-    if (data.token === clientToken) {
+    if (data.room === roomNumber) {
       await createAnswer(data.offer);
     }
   });
@@ -199,6 +200,10 @@ html = """
   }
 
   document.getElementById('call-button').addEventListener('click', call);
+  document.getElementById('join-room-button').addEventListener('click', () => {
+    roomNumber = document.getElementById('room-number').value;
+    socket.emit('join_room', roomNumber);
+  });
 
   init();
 
@@ -209,7 +214,7 @@ html = """
     const acceptButton = document.getElementById('accept-call-button');
     acceptButton.onclick = async () => {
       modal.style.display = 'none';
-      socket.emit('accept_call', { sender: senderId, offer: peerConnection.localDescription, token: clientToken });
+      socket.emit('accept_call', { sender: senderId, offer: peerConnection.localDescription, room: roomNumber });
     };
 
     const rejectButton = document.getElementById('reject-call-button');
@@ -222,39 +227,41 @@ html = """
 </html>
 """
 
-def generate_client_token():
-    """Generate a secure token for the client."""
-    return secrets.token_urlsafe(8)  # Generate an 8-character token
+def generate_client_number():
+    """Generate a secure number for the client."""
+    return secrets.token_hex(4)  # Generate a random 8-character hex number
 
 @socketio.on('connect')
 def handle_connect():
-    client_token = generate_client_token()
-    client_tokens[request.sid] = client_token
-    emit('client_token', {'token': client_token}, room=request.sid)
+    client_number = generate_client_number()
+    client_rooms[request.sid] = client_number
+    emit('client_number', {'number': client_number}, room=request.sid)
 
 @socketio.on('disconnect')
 def handle_disconnect():
-    if request.sid in client_tokens:
-        del client_tokens[request.sid]
+    if request.sid in client_rooms:
+        del client_rooms[request.sid]
 
 @app.route('/')
 def index():
-    client_token = client_tokens.get(request.sid)
-    if not client_token:
-        return "Error: Unauthorized access"  # Handle unauthorized access
-    return render_template_string(html, client_token=client_token)
+    return render_template_string(html)
 
 @socketio.on('create_offer')
 def handle_create_offer(data):
-    emit('offer_created', {'offer': data['offer'], 'sender': request.sid, 'token': data['token']}, room=data['token'])
+    emit('offer_created', {'offer': data['offer'], 'sender': request.sid, 'room': data['room']}, room=data['room'])
 
 @socketio.on('create_answer')
 def handle_create_answer(data):
-    emit('answer_created', {'answer': data['answer'], 'sender': request.sid, 'token': data['token']}, room=data['token'])
+    emit('answer_created', {'answer': data['answer'], 'sender': request.sid, 'room': data['room']}, room=data['room'])
 
 @socketio.on('accept_call')
 def handle_accept_call(data):
-    emit('call_accepted', {'offer': data['offer'], 'sender': request.sid, 'token': data['token']}, room=data['sender'])
+    emit('call_accepted', {'offer': data['offer'], 'sender': request.sid, 'room': data['room']}, room=data['sender'])
+
+@socketio.on('join_room')
+def handle_join_room(data):
+    join_room(data)
+    emit('joined_room', {'room': data}, room=request.sid)
 
 if __name__ == '__main__':
     socketio.run(app, debug=True)
