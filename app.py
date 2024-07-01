@@ -1,13 +1,13 @@
-from flask import Flask, render_template_string, request
+from flask import Flask, render_template_string
 from flask_socketio import SocketIO, emit, join_room
 from flask_cors import CORS
 
-app =Flask (__name__)
+app = Flask(__name__)
 CORS(app)
 socketio = SocketIO(app)
 
 
-html="""
+html = """
 <!DOCTYPE html>
 <html>
 <head>
@@ -15,14 +15,45 @@ html="""
   <meta http-equiv='X-UA-Compatible' content='IE=edge'>
   <title>WebRTC 1</title>
   <meta name='viewport' content='width=device-width, initial-scale=1'>
-  <link rel='stylesheet' type='text/css' media='screen' href='main.css'>
   <script src="https://cdn.socket.io/4.0.0/socket.io.min.js"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background-color: #f0f0f0;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+    }
+    #videos {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 20px;
+    }
+    .video-container {
+      border: 2px solid #333;
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    .video-container video {
+      width: 300px;
+      height: 225px;
+      object-fit: cover;
+    }
+  </style>
 </head>
 <body>
 
   <div id="videos">
-    <video class="video-player" id="user-1" autoplay playsinline></video>
-    <video class="video-player" id="user-2" autoplay playsinline></video>
+    <div class="video-container">
+      <video class="video-player" id="local-video" autoplay playsinline muted></video>
+      <p>Your Video</p>
+    </div>
+    <div class="video-container">
+      <video class="video-player" id="remote-video" autoplay playsinline></video>
+      <p>Your Friend's Video</p>
+    </div>
   </div>
 
   <div class="step">
@@ -32,20 +63,17 @@ html="""
     <button id="call-button">Call</button>
   </div>
 
-</body>
 <script>
   const socket = io();
   let peerConnection = new RTCPeerConnection();
   let localStream;
-  let remoteStream;
+  let remoteStream = new MediaStream();
 
   let init = async () => {
     localStream = await navigator.mediaDevices.getUserMedia({
       video: true, audio: false
     });
-    remoteStream = new MediaStream();
-    document.getElementById('user-1').srcObject = localStream;
-    document.getElementById('user-2').srcObject = remoteStream;
+    document.getElementById('local-video').srcObject = localStream;
 
     localStream.getTracks().forEach((track) => {
       peerConnection.addTrack(track, localStream);
@@ -55,6 +83,7 @@ html="""
       event.streams[0].getTracks().forEach((track) => {
         remoteStream.addTrack(track);
       });
+      document.getElementById('remote-video').srcObject = remoteStream;
     };
   }
 
@@ -105,6 +134,7 @@ html="""
 
   init();
 </script>
+</body>
 </html>
 """
 
