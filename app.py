@@ -1,5 +1,5 @@
 from flask import Flask, render_template_string
-from flask_socketio import SocketIO, emit, skip_sid
+from flask_socketio import SocketIO, emit
 from flask_cors import CORS
 
 app = Flask(__name__)
