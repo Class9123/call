@@ -1,10 +1,14 @@
-from flask import Flask, render_template_string
-from flask_socketio import SocketIO, emit
+from flask import Flask, render_template_string, request
+from flask_socketio import SocketIO, emit, join_room, disconnect
 from flask_cors import CORS
 
 app = Flask(__name__)
 CORS(app)
 socketio = SocketIO(app)
+
+# Track connected clients
+connected_clients = 0
+max_clients = 2  # Maximum allowed clients
 
 html = """
 <!DOCTYPE html>
@@ -133,16 +137,16 @@ html = """
   }
 
   socket.on('offer_created', async (data) => {
-    if (!peerConnection.currentRemoteDescription) {
+    if (!peerConnection.currentRemoteDescription && data.sender !== socket.id) {
       const accept = confirm('Incoming call! Do you want to accept?');
       if (accept) {
-        await createAnswer(data);
+        await createAnswer(data.offer);
       }
     }
   });
 
   socket.on('answer_created', async (data) => {
-    await addAnswer(data);
+    await addAnswer(data.answer);
   });
 
   let call = async () => {
@@ -158,23 +162,36 @@ html = """
 </html>
 """
 
+@socketio.on('connect')
+def handle_connect():
+    global connected_clients
+    if connected_clients < max_clients:
+        connected_clients += 1
+    else:
+        disconnect()
+
+@socketio.on('disconnect')
+def handle_disconnect():
+    global connected_clients
+    if connected_clients > 0:
+        connected_clients -= 1
+
 @app.route('/')
 def index():
     return render_template_string(html)
-  
 
 @socketio.on('create_offer')
 def handle_create_offer(data):
-    emit('offer_created', data, broadcast=True, include_self=False)
+    emit('offer_created', {'offer': data, 'sender': request.sid}, broadcast=True, include_self=False)
 
 @socketio.on('create_answer')
 def handle_create_answer(data):
-    emit('answer_created', data, broadcast=True)
+    emit('answer_created', {'answer': data, 'sender': request.sid}, broadcast=True)
 
 @socketio.on('call_started')
 def handle_call_started(data):
     if data:
-        emit('incoming_call', True, broadcast=True)
+        emit('incoming_call', {'sender': request.sid}, broadcast=True, include_self=False)
 
 if __name__ == '__main__':
     socketio.run(app, debug=True)
