@@ -161,6 +161,7 @@ html = """
 @app.route('/')
 def index():
     return render_template_string(html)
+  
 
 @socketio.on('create_offer')
 def handle_create_offer(data):
