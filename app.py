@@ -1,5 +1,5 @@
 from flask import Flask, render_template_string
-from flask_socketio import SocketIO, emit
+from flask_socketio import SocketIO, emit, skip_sid
 from flask_cors import CORS
 
 app = Flask(__name__)
@@ -23,6 +23,7 @@ html = """
       justify-content: center;
       align-items: center;
       height: 100vh;
+      margin: 0;
     }
     #videos {
       display: flex;
@@ -48,6 +49,9 @@ html = """
       border: none;
       border-radius: 5px;
       cursor: pointer;
+      position: absolute;
+      top: 20px;
+      right: 20px;
     }
     #call-button:hover {
       background-color: #0056b3;
@@ -55,6 +59,8 @@ html = """
   </style>
 </head>
 <body>
+
+  <button id="call-button">Call</button>
 
   <div id="videos">
     <div class="video-container">
@@ -71,7 +77,6 @@ html = """
     <p>
       <strong>Step 1:</strong> Click "Call" to start the video call.
     </p>
-    <button id="call-button">Call</button>
   </div>
 
 <script>
@@ -159,7 +164,7 @@ def index():
 
 @socketio.on('create_offer')
 def handle_create_offer(data):
-    emit('offer_created', data, broadcast=True)
+    emit('offer_created', data, broadcast=True, include_self=False)
 
 @socketio.on('create_answer')
 def handle_create_answer(data):
