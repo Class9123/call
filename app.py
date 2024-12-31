@@ -254,4 +254,4 @@ def handle_request_user_list():
     emit('update-user-list', {'userIds': connected_users}, broadcast=True)
 
 if __name__ == '__main__':
-    socketio.run(app)
+    socketio.run(app , debug=True)
