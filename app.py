@@ -39,7 +39,7 @@ html = """
         videoElement.srcObject = stream;
 
         // Capture frames from the webcam at a controlled rate
-        const FRAME_INTERVAL = 1000 / 30; // 15 FPS
+        const FRAME_INTERVAL = 1000 / 10; // 15 FPS
         setInterval(() => {
           if (!videoElement.paused && !videoElement.ended) {
             canvas.width = videoElement.videoWidth;
